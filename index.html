@@ -364,8 +364,8 @@ header h1 span { color: #a5b4fc; }
 
     <div class="api-section">
       <div class="section-title">☁️ 클라우드 동기화 상태</div>
-      <p id="cloudStatusMsg" style="font-size:13px;color:#43a047;font-weight:600">● 연결됨 (Firebase)</p>
-      <p style="font-size:12px;color:#888;margin-top:4px">모든 기기에서 자동 동기화됩니다.</p>
+      <p id="cloudStatusMsg" style="font-size:13px;font-weight:600"></p>
+      <p style="font-size:12px;color:#888;margin-top:4px">15초마다 자동 동기화됩니다.</p>
     </div>
 
     <div class="modal-actions">
@@ -399,23 +399,30 @@ function saveLocalMeetings(arr) { setSetting('meetings_custom', arr); pushToFire
 function getGeminiKey() { return localStorage.getItem('gemini_key') || ''; }
 
 const FIREBASE_URL = 'https://meeting-notes-cd43f-default-rtdb.asia-southeast1.firebasedatabase.app/';
+function getUrlSecret() { return location.hash.slice(1).trim(); }
+function getFirebasePath() {
+  const s = getUrlSecret();
+  return s ? `${FIREBASE_URL}${s}/meetings.json` : null;
+}
 
 async function fetchFromFirebase() {
+  const url = getFirebasePath();
+  if (!url) return;
   try {
-    const res = await fetch(`${FIREBASE_URL}meetings.json`);
+    const res = await fetch(url);
     if (!res.ok) throw new Error('fetch failed');
     const data = await res.json();
     if (Array.isArray(data)) {
       setSetting('meetings_custom', data);
-    } else if (data === null) {
-      // 최초 접속 - 로컬 데이터 그대로 유지
     }
   } catch(e) { console.warn('Firebase 불러오기 실패, 로컬 데이터 사용:', e); }
 }
 
 async function pushToFirebase(arr) {
+  const url = getFirebasePath();
+  if (!url) return;
   try {
-    await fetch(`${FIREBASE_URL}meetings.json`, {
+    await fetch(url, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(arr)
@@ -645,6 +652,15 @@ function deleteCard(id) {
 function openSettings() {
   renderCatList();
   document.getElementById('geminiKeyInput').value = getGeminiKey();
+  const secret = getUrlSecret();
+  const statusEl = document.getElementById('cloudStatusMsg');
+  if (secret) {
+    statusEl.style.color = '#43a047';
+    statusEl.textContent = `● 연결됨 (키: ${secret.slice(0,4)}••••${secret.slice(-4)})`;
+  } else {
+    statusEl.style.color = '#e53935';
+    statusEl.textContent = '● URL에 비밀키 없음 - 동기화 비활성';
+  }
   openModal('settingsModal');
 }
 
@@ -706,14 +722,18 @@ document.querySelectorAll('.modal-overlay').forEach(el => {
 
 // ─── Init ────────────────────────────────────────────────
 populateCatSelects();
-fetchFromFirebase().then(() => renderCards());
-
-// 다른 기기의 변경사항 자동 반영 (15초마다)
-setInterval(() => {
-  if (!document.getElementById('editModal').classList.contains('open')) {
-    fetchFromFirebase().then(() => renderCards());
-  }
-}, 15000);
+if (!getUrlSecret()) {
+  alert('⚠️ URL에 비밀키(#...) 가 없습니다.\n\n정확한 주소를 북마크에서 열어주세요.\n(예: ...meeting-notes/#k7m4p9nj3xt2qr8f)');
+  renderCards();
+} else {
+  fetchFromFirebase().then(() => renderCards());
+  // 다른 기기의 변경사항 자동 반영 (15초마다)
+  setInterval(() => {
+    if (!document.getElementById('editModal').classList.contains('open')) {
+      fetchFromFirebase().then(() => renderCards());
+    }
+  }, 15000);
+}
 </script>
 </body>
 </html>
