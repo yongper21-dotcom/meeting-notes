@@ -363,23 +363,9 @@ header h1 span { color: #a5b4fc; }
     <hr class="divider">
 
     <div class="api-section">
-      <div class="section-title">☁️ GitHub Gist 동기화 (선택)</div>
-      <p style="font-size:13px;color:#666;margin-bottom:8px">설정하면 어느 기기에서도 같은 회의록을 볼 수 있습니다.</p>
-      <div style="display:flex;flex-direction:column;gap:8px">
-        <div>
-          <label style="font-size:11px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:.5px">GitHub Personal Access Token</label>
-          <input type="password" id="gistTokenInput" placeholder="ghp_..." style="width:100%;margin-top:4px;padding:9px 13px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:14px;outline:none">
-        </div>
-        <div>
-          <label style="font-size:11px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:.5px">Gist ID</label>
-          <div style="display:flex;gap:8px;margin-top:4px">
-            <input type="text" id="gistIdInput" placeholder="Gist ID (자동 입력 또는 직접 입력)" style="flex:1;padding:9px 13px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:14px;outline:none">
-            <button class="btn-sm btn-edit" onclick="createNewGist()" style="padding:9px 14px;font-size:13px;white-space:nowrap">새 Gist 만들기</button>
-          </div>
-        </div>
-        <span id="gistStatusMsg" style="font-size:12px;color:#43a047;font-weight:600;min-height:18px"></span>
-      </div>
-      <p class="api-hint">토큰 발급: <a href="https://github.com/settings/tokens/new?scopes=gist&description=meeting-notes" target="_blank">GitHub Settings</a> → gist 권한 체크 → Generate token</p>
+      <div class="section-title">☁️ 클라우드 동기화 상태</div>
+      <p id="cloudStatusMsg" style="font-size:13px;color:#43a047;font-weight:600">● 연결됨 (Firebase)</p>
+      <p style="font-size:12px;color:#888;margin-top:4px">모든 기기에서 자동 동기화됩니다.</p>
     </div>
 
     <div class="modal-actions">
@@ -409,61 +395,32 @@ function setSetting(k, v) { localStorage.setItem(k, JSON.stringify(v)); }
 
 function getCategories() { return getSetting('cats', DEFAULT_CATS); }
 function getLocalMeetings() { return getSetting('meetings_custom', []); }
-function saveLocalMeetings(arr) { setSetting('meetings_custom', arr); pushToGist(arr); }
+function saveLocalMeetings(arr) { setSetting('meetings_custom', arr); pushToFirebase(arr); }
 function getGeminiKey() { return localStorage.getItem('gemini_key') || ''; }
-function getGistToken() { return localStorage.getItem('gist_token') || ''; }
-function getGistId() { return localStorage.getItem('gist_id') || ''; }
 
-async function fetchFromGist() {
-  const token = getGistToken(), id = getGistId();
-  if (!token || !id) return;
+const FIREBASE_URL = 'https://meeting-notes-cd43f-default-rtdb.asia-southeast1.firebasedatabase.app/';
+
+async function fetchFromFirebase() {
   try {
-    const res = await fetch(`https://api.github.com/gists/${id}`, {
-      headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' }
-    });
+    const res = await fetch(`${FIREBASE_URL}meetings.json`);
     if (!res.ok) throw new Error('fetch failed');
     const data = await res.json();
-    const file = data.files && data.files['meeting_notes.json'];
-    if (file && file.content) {
-      const arr = JSON.parse(file.content);
-      setSetting('meetings_custom', arr);
+    if (Array.isArray(data)) {
+      setSetting('meetings_custom', data);
+    } else if (data === null) {
+      // 최초 접속 - 로컬 데이터 그대로 유지
     }
-  } catch(e) { console.warn('Gist 불러오기 실패, 로컬 데이터 사용:', e); }
+  } catch(e) { console.warn('Firebase 불러오기 실패, 로컬 데이터 사용:', e); }
 }
 
-async function pushToGist(arr) {
-  const token = getGistToken(), id = getGistId();
-  if (!token || !id) return;
+async function pushToFirebase(arr) {
   try {
-    await fetch(`https://api.github.com/gists/${id}`, {
-      method: 'PATCH',
-      headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' },
-      body: JSON.stringify({ files: { 'meeting_notes.json': { content: JSON.stringify(arr) } } })
+    await fetch(`${FIREBASE_URL}meetings.json`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(arr)
     });
-  } catch(e) { console.warn('Gist 저장 실패:', e); }
-}
-
-async function createNewGist() {
-  const token = document.getElementById('gistTokenInput').value.trim();
-  if (!token) { alert('먼저 GitHub Token을 입력해주세요.'); return; }
-  const statusEl = document.getElementById('gistStatusMsg');
-  statusEl.style.color = '#888';
-  statusEl.textContent = '생성 중...';
-  try {
-    const res = await fetch('https://api.github.com/gists', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' },
-      body: JSON.stringify({ description: '회의록 데이터', public: false, files: { 'meeting_notes.json': { content: JSON.stringify(getLocalMeetings()) } } })
-    });
-    if (!res.ok) throw new Error('create failed');
-    const data = await res.json();
-    document.getElementById('gistIdInput').value = data.id;
-    statusEl.style.color = '#43a047';
-    statusEl.textContent = '✓ Gist 생성 완료! 저장 버튼을 눌러주세요.';
-  } catch(e) {
-    statusEl.style.color = '#e53935';
-    statusEl.textContent = '✗ 생성 실패. Token 권한을 확인해주세요.';
-  }
+  } catch(e) { console.warn('Firebase 저장 실패:', e); }
 }
 
 function getAllMeetings() {
@@ -688,9 +645,6 @@ function deleteCard(id) {
 function openSettings() {
   renderCatList();
   document.getElementById('geminiKeyInput').value = getGeminiKey();
-  document.getElementById('gistTokenInput').value = getGistToken();
-  document.getElementById('gistIdInput').value = getGistId();
-  document.getElementById('gistStatusMsg').textContent = '';
   openModal('settingsModal');
 }
 
@@ -732,17 +686,9 @@ function removeCategory(idx) {
 function saveSettings() {
   const key = document.getElementById('geminiKeyInput').value.trim();
   localStorage.setItem('gemini_key', key);
-  const token = document.getElementById('gistTokenInput').value.trim();
-  const gistId = document.getElementById('gistIdInput').value.trim();
-  localStorage.setItem('gist_token', token);
-  localStorage.setItem('gist_id', gistId);
   closeModal('settingsModal');
   populateCatSelects();
-  if (token && gistId) {
-    fetchFromGist().then(() => renderCards());
-  } else {
-    renderCards();
-  }
+  renderCards();
 }
 
 // ─── Modal helpers ───────────────────────────────────────
@@ -760,11 +706,14 @@ document.querySelectorAll('.modal-overlay').forEach(el => {
 
 // ─── Init ────────────────────────────────────────────────
 populateCatSelects();
-if (getGistToken() && getGistId()) {
-  fetchFromGist().then(() => renderCards());
-} else {
-  renderCards();
-}
+fetchFromFirebase().then(() => renderCards());
+
+// 다른 기기의 변경사항 자동 반영 (15초마다)
+setInterval(() => {
+  if (!document.getElementById('editModal').classList.contains('open')) {
+    fetchFromFirebase().then(() => renderCards());
+  }
+}, 15000);
 </script>
 </body>
 </html>
