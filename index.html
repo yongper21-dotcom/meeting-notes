@@ -738,7 +738,11 @@ function saveSettings() {
   localStorage.setItem('gist_id', gistId);
   closeModal('settingsModal');
   populateCatSelects();
-  renderCards();
+  if (token && gistId) {
+    fetchFromGist().then(() => renderCards());
+  } else {
+    renderCards();
+  }
 }
 
 // ─── Modal helpers ───────────────────────────────────────
